@@ -1,41 +1,44 @@
-# streamlit_app.py  (SAFE MODE)
-# Minimal version to fix blank page issues on Streamlit Cloud.
-# - No experimental UI args (e.g., border=True)
-# - No secrets required (Meta Pixel disabled by default)
-# - Pure Python 3.9–3.13 compatible
+# streamlit_app.py  (FULL VERSION: Pixel + QuizComplete + optional Lead)
+# Compatible with Streamlit Cloud. Safe guards for rendering.
+# -------------------------------------------------------------
 
 from dataclasses import dataclass
 from typing import List, Dict, Any
 import streamlit as st
 
-# ---------- Data structures ----------
+# =============================
+# Data structures
+# =============================
 @dataclass
 class Fragrance:
     id: str
     brand: str
     name: str
-    weight: float
-    brightness: float
-    sillage: int
-    longevity: int
-    seasonality: List[str]
-    occasions: List[str]
-    archetypes: List[str]
+    weight: float           # 0 = very light, 1 = very heavy
+    brightness: float       # 0 = very fresh/green, 1 = very sweet/resinous
+    sillage: int            # 1..5
+    longevity: int          # 1..5
+    seasonality: List[str]  # e.g., ["hot", "mild", "cool"]
+    occasions: List[str]    # e.g., ["office", "date", "formal", "everyday"]
+    archetypes: List[str]   # e.g., ["elegant", "bold", "mysterious", "approachable", "refined", "youthful", "adventurous", "sensual"]
     price: float
     def full_name(self) -> str:
         return f"{self.brand} {self.name}"
 
 @dataclass
 class UserProfile:
-    climate: str
-    occasion: str
-    intensity: str
-    longevity_goal: str
-    weight_pref: float
-    brightness_pref: float
-    aspiration: List[str]
+    climate: str            # hot | mild | cool | mixed
+    occasion: str          # office | date | formal | gym | everyday
+    intensity: str         # skin | moderate | trail
+    longevity_goal: str    # short | workday | allday
+    weight_pref: float     # 0..1 target
+    brightness_pref: float # 0..1 target
+    aspiration: List[str]  # desired identity cues
 
-# ---------- Helpers ----------
+# =============================
+# Helpers
+# =============================
+
 def clamp01(x: float) -> float:
     return max(0.0, min(1.0, x))
 
@@ -48,7 +51,10 @@ def map_intensity_to_sillage(intensity: str) -> float:
 def map_longevity_goal(goal: str) -> float:
     return {"short": 2.0, "workday": 4.0, "allday": 5.0}.get(goal, 4.0)
 
-# ---------- Scoring ----------
+# =============================
+# Scoring components
+# =============================
+
 def climate_fit(user: UserProfile, f: Fragrance) -> float:
     if user.climate == "mixed":
         return 1.0 if len(f.seasonality) >= 2 else 0.7
@@ -85,7 +91,9 @@ def diversity_bonus(already: List[Fragrance], candidate: Fragrance) -> float:
 
 WEIGHTS = {"climate": 0.20, "occasion": 0.15, "intensity": 0.15, "longevity": 0.15, "latent": 0.20, "aspiration": 0.10, "diversity": 0.05}
 
-# ---------- Catalog (demo) ----------
+# =============================
+# Catalog (demo)
+# =============================
 CATALOG: List[Fragrance] = [
     Fragrance("1", "Chanel", "Bleu de Chanel", 0.45, 0.35, 3, 4, ["mild", "hot"], ["office", "everyday", "date"], ["refined", "approachable"], 110.0),
     Fragrance("2", "Dior", "Sauvage EDT", 0.50, 0.40, 4, 4, ["hot", "mild"], ["everyday", "date"], ["bold", "youthful"], 100.0),
@@ -98,7 +106,9 @@ CATALOG: List[Fragrance] = [
     Fragrance("9", "Giorgio Armani", "Acqua di Giò Profondo", 0.40, 0.25, 3, 4, ["hot", "mild"], ["everyday", "office"], ["approachable", "youthful"], 120.0),
 ]
 
-# ---------- Recommender ----------
+# =============================
+# Recommender core
+# =============================
 
 def score_user_to_fragrance(user: UserProfile, f: Fragrance, picked: List[Fragrance]) -> Dict[str, float]:
     parts = {
@@ -142,7 +152,6 @@ def recommend(user: UserProfile, k: int = 3) -> List[Dict[str, Any]]:
 
 
 def explain_pick(user: UserProfile, r: Dict[str, Any]) -> str:
-    p = r["parts"]
     mood = ("skin-close" if user.intensity == "skin" else
             "moderately projecting" if user.intensity == "moderate" else
             "leaves a trail")
@@ -152,11 +161,34 @@ def explain_pick(user: UserProfile, r: Dict[str, Any]) -> str:
         f"we prioritized weight/brightness close to your taste and scents mapped to **{asp}**."
     )
 
-# ---------- UI ----------
+# =============================
+# UI
+# =============================
 st.set_page_config(page_title="Fragrance Match (MVP)", page_icon="🧪", layout="centered")
 
 st.title("Find Your Fragrance Match")
 st.write("Answer a few quick questions. Get 3 tailored picks — no note knowledge needed.")
+
+# --- Meta Pixel init (safe) ---
+pixel_id = st.secrets.get("META_PIXEL_ID", None)
+if pixel_id:
+    try:
+        st.components.v1.html(f"""
+        <!-- Meta Pixel -->
+        <script>
+          !function(f,b,e,v,n,t,s){{if(f.fbq)return;n=f.fbq=function(){{n.callMethod?
+          n.callMethod.apply(n,arguments):n.queue.push(arguments)}};if(!f._fbq)f._fbq=n;
+          n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+          t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}}(window, document,'script',
+          'https://connect.facebook.net/en_US/fbevents.js');
+          fbq('init', '{pixel_id}');
+          fbq('track', 'PageView');
+        </script>
+        <noscript><img height="1" width="1" style="display:none"
+          src="https://www.facebook.com/tr?id={pixel_id}&ev=PageView&noscript=1"/></noscript>
+        """, height=0)
+    except Exception:
+        pass
 
 with st.form("quiz"):
     col1, col2 = st.columns(2)
@@ -189,6 +221,16 @@ if submitted:
     )
     recs = recommend(user, k=3)
 
+    # Fire conversion for Meta optimization
+    if pixel_id:
+        try:
+            st.components.v1.html(
+                "<script>if (window.fbq) { fbq('trackCustom','QuizComplete'); }</script>",
+                height=0,
+            )
+        except Exception:
+            pass
+
     st.subheader("Your top matches")
     for i, r in enumerate(recs, 1):
         st.markdown(f"### {i}. {r['name']}")
@@ -199,5 +241,33 @@ if submitted:
             st.json(r["parts"])
         st.divider()
 
-# NOTE: Meta Pixel intentionally disabled in SAFE MODE to avoid rendering issues.
-# When ready, add pixel snippet back guarded with try/except and a Secrets check.
+    # Optional: simple email capture for retargeting / sending picks
+    with st.form("lead"):
+        st.caption("Optional: email your results to yourself")
+        email = st.text_input("Email")
+        ok = st.form_submit_button("Send")
+    if ok and email:
+        try:
+            # store email + basic UTM params for later analysis
+            params = getattr(st, "query_params", None)
+            if params is None:
+                params = st.experimental_get_query_params()
+            src = params.get('utm_source', [''])[0]
+            camp = params.get('utm_campaign', [''])[0]
+            with open("leads.csv", "a", encoding="utf-8") as f:
+                f.write(f"{email}\t{src}\t{camp}\n")
+            st.success("Sent! Check your inbox.")
+            if pixel_id:
+                try:
+                    st.components.v1.html("<script>if (window.fbq) { fbq('track','Lead'); }</script>", height=0)
+                except Exception:
+                    pass
+        except Exception as e:
+            st.warning("Could not save your email right now. Please try again later.")
+
+# -----------------------------
+# NOTES
+# - Add META_PIXEL_ID in Streamlit Secrets to enable Pixel.
+# - Use links with UTM params for better analytics.
+# - requirements.txt should include:  streamlit>=1.48
+
